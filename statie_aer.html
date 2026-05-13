@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stație Aer v3</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:       #080c10;
+    --panel:    #0d1520;
+    --border:   #1a2d44;
+    --cyan:     #00cfff;
+    --green:    #00ff88;
+    --yellow:   #ffe040;
+    --orange:   #ff8c00;
+    --red:      #ff3355;
+    --text:     #c8dff0;
+    --muted:    #3a5570;
+    --glow:     0 0 18px rgba(0,207,255,0.25);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Share Tech Mono', monospace;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Subtle grid background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,207,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,207,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 24px 16px 48px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .site-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(1.1rem, 3vw, 1.6rem);
+    font-weight: 900;
+    color: var(--cyan);
+    letter-spacing: 4px;
+    text-shadow: 0 0 20px rgba(0,207,255,0.5);
+  }
+
+  .site-title span { color: var(--text); font-weight: 400; }
+
+  .header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  #clock {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 1.4rem;
+    color: var(--cyan);
+    letter-spacing: 3px;
+  }
+
+  #date-display {
+    font-size: 0.75rem;
+    color: var(--muted);
+    letter-spacing: 2px;
+  }
+
+  /* ── STATUS BAR ── */
+  .status-bar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 28px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.err { background: var(--red); }
+
+  #status-text { color: var(--text); }
+  .status-bar .spacer { flex: 1; }
+  #last-update { font-size: 0.72rem; }
+
+  /* ── CARDS GRID ── */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--cyan);
+    border-radius: 8px;
+    padding: 18px 16px 14px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+
+  .card::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: inherit;
+    filter: blur(6px);
+  }
+
+  .card:hover { box-shadow: var(--glow); }
+
+  .card-label {
+    font-size: 0.68rem;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+
+  .card-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--cyan);
+    line-height: 1;
+    transition: color 0.4s;
+  }
+
+  .card-unit {
+    font-size: 0.72rem;
+    color: var(--muted);
+    margin-top: 4px;
+    letter-spacing: 1px;
+  }
+
+  .card-status {
+    font-size: 0.72rem;
+    margin-top: 8px;
+    padding: 3px 8px;
+    border-radius: 3px;
+    display: inline-block;
+    letter-spacing: 1px;
+  }
+
+  .card-minmax {
+    margin-top: 8px;
+    font-size: 0.65rem;
+    color: var(--muted);
+  }
+
+  /* ── CHARTS ── */
+  .charts-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.75rem;
+    letter-spacing: 4px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .charts {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(460px, 1fr));
+    gap: 16px;
+  }
+
+  @media (max-width: 520px) {
+    .charts { grid-template-columns: 1fr; }
+  }
+
+  .chart-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+
+  .chart-title {
+    font-size: 0.7rem;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .chart-latest {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.85rem;
+    color: var(--cyan);
+  }
+
+  .chart-wrap {
+    position: relative;
+    height: 160px;
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 0.68rem;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  footer a { color: var(--cyan); text-decoration: none; }
+
+  /* ── SPINNER ── */
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid var(--border);
+    border-top-color: var(--cyan);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── VALUE COLORS ── */
+  .col-green  { color: var(--green) !important; }
+  .col-yellow { color: var(--yellow) !important; }
+  .col-orange { color: var(--orange) !important; }
+  .col-red    { color: var(--red) !important; }
+  .col-blue   { color: #4da8ff !important; }
+
+  .bg-green  { background: rgba(0,255,136,0.12); color: var(--green); }
+  .bg-yellow { background: rgba(255,224,64,0.12); color: var(--yellow); }
+  .bg-orange { background: rgba(255,140,0,0.12);  color: var(--orange); }
+  .bg-red    { background: rgba(255,51,85,0.12);  color: var(--red); }
+
+  .pulse {
+    animation: pulse 1.5s ease-in-out 1;
+  }
+  @keyframes pulse {
+    0%   { opacity: 0.4; }
+    50%  { opacity: 1; }
+    100% { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- HEADER -->
+  <header>
+    <div class="site-title">🌍 STAȚIE AER <span>v3</span></div>
+    <div class="header-right">
+      <div id="clock">--:--:--</div>
+      <div id="date-display">-- -- ----</div>
+    </div>
+  </header>
+
+  <!-- STATUS -->
+  <div class="status-bar">
+    <div class="status-dot" id="dot"></div>
+    <span id="status-text"><span class="spinner"></span>Se încarcă datele...</span>
+    <div class="spacer"></div>
+    <span id="last-update"></span>
+  </div>
+
+  <!-- CARDS -->
+  <div class="cards">
+
+    <div class="card" id="card-temp">
+      <div class="card-label">Temperatură</div>
+      <div class="card-value" id="val-temp">--</div>
+      <div class="card-unit">°C</div>
+      <div class="card-minmax" id="mm-temp"></div>
+    </div>
+
+    <div class="card" id="card-hum">
+      <div class="card-label">Umiditate</div>
+      <div class="card-value" id="val-hum">--</div>
+      <div class="card-unit">%</div>
+      <div class="card-minmax" id="mm-hum"></div>
+    </div>
+
+    <div class="card" id="card-mq">
+      <div class="card-label">Gaze MQ-135</div>
+      <div class="card-value" id="val-mq">--</div>
+      <div class="card-unit">ADC raw</div>
+      <div class="card-status" id="st-mq"></div>
+    </div>
+
+    <div class="card" id="card-dust">
+      <div class="card-label">Praf PM2.5</div>
+      <div class="card-value" id="val-dust">--</div>
+      <div class="card-unit">mg/m³</div>
+      <div class="card-status" id="st-dust"></div>
+    </div>
+
+    <div class="card" id="card-pres">
+      <div class="card-label">Presiune</div>
+      <div class="card-value" id="val-pres">--</div>
+      <div class="card-unit">hPa</div>
+      <div class="card-minmax" id="mm-pres"></div>
+    </div>
+
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts-title">◈ GRAFICE ULTIMELE 60 MINUTE</div>
+  <div class="charts">
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Temperatură (°C)</span>
+        <span class="chart-latest col-green" id="cl-temp">--</span>
+      </div>
+      <div class="chart-wrap"><canvas id="ch-temp"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Umiditate (%)</span>
+        <span class="chart-latest" id="cl-hum" style="color:#4da8ff">--</span>
+      </div>
+      <div class="chart-wrap"><canvas id="ch-hum"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Gaze MQ-135 (ADC)</span>
+        <span class="chart-latest col-yellow" id="cl-mq">--</span>
+      </div>
+      <div class="chart-wrap"><canvas id="ch-mq"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">Praf PM2.5 (mg/m³)</span>
+        <span class="chart-latest col-orange" id="cl-dust">--</span>
+      </div>
+      <div class="chart-wrap"><canvas id="ch-dust"></canvas></div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <footer>
+    <span>ThingSpeak Channel: <a href="https://thingspeak.com/channels/3314977" target="_blank">3314977</a></span>
+    <span>Refresh automat: 60s &nbsp;|&nbsp; Sursa: ESP32 acasă</span>
+    <span id="ts-link"><a href="https://thingspeak.com/channels/3314977" target="_blank">→ Deschide ThingSpeak</a></span>
+  </footer>
+
+</div>
+
+<script>
+// =============================================
+// CONFIG — modifică dacă schimbi canalul
+// =============================================
+const CHANNEL_ID  = '3314977';
+const READ_KEY    = '';          // lasă gol dacă canalul e public
+const RESULTS     = 60;          // câte puncte să cerem
+const REFRESH_MS  = 60000;       // refresh la 60s
+
+// field mapping (din codul Arduino):
+// field1=Temp  field2=Hum  field3=Pres  field4=MQ  field5=Dust
+const FIELDS = { temp:1, hum:2, pres:3, mq:4, dust:5 };
+
+// =============================================
+// CEAS LOCAL
+// =============================================
+function updateClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('ro-RO', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+  document.getElementById('date-display').textContent =
+    now.toLocaleDateString('ro-RO', {day:'2-digit', month:'long', year:'numeric'}).toUpperCase();
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// =============================================
+// HELPERS CULORI / STATUS
+// =============================================
+function mqInfo(v) {
+  if (v < 1500) return {cls:'col-green',  bg:'bg-green',  lbl:'EXCELENT'};
+  if (v < 2200) return {cls:'col-yellow', bg:'bg-yellow', lbl:'ACCEPTABIL'};
+  if (v < 3000) return {cls:'col-orange', bg:'bg-orange', lbl:'POLUAT'};
+  return            {cls:'col-red',    bg:'bg-red',    lbl:'TOXIC!'};
+}
+function dustInfo(v) {
+  if (v < 0.03) return {cls:'col-green',  bg:'bg-green',  lbl:'AER CURAT'};
+  if (v < 0.08) return {cls:'col-yellow', bg:'bg-yellow', lbl:'MODERAT'};
+  if (v < 0.15) return {cls:'col-orange', bg:'bg-orange', lbl:'NOCIV'};
+  return             {cls:'col-red',    bg:'bg-red',    lbl:'PERICULOS!'};
+}
+function tempClass(v) {
+  if (v < 10)  return 'col-blue';
+  if (v < 25)  return 'col-green';
+  if (v < 35)  return 'col-orange';
+  return 'col-red';
+}
+function humClass(v) {
+  if (v < 30)  return 'col-orange';
+  if (v <= 70) return 'col-green';
+  return 'col-blue';
+}
+
+function setVal(id, val, cls) {
+  const el = document.getElementById(id);
+  el.textContent = val;
+  el.className = 'card-value ' + (cls || '');
+  el.classList.add('pulse');
+  setTimeout(() => el.classList.remove('pulse'), 1600);
+}
+
+// =============================================
+// CHART.JS — configuratie comuna
+// =============================================
+Chart.defaults.color = '#3a5570';
+Chart.defaults.font.family = "'Share Tech Mono', monospace";
+Chart.defaults.font.size = 11;
+
+function makeChart(canvasId, color, unit) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        borderColor: color,
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.3,
+        fill: true,
+        backgroundColor: color.replace(')', ', 0.08)').replace('rgb', 'rgba')
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#0d1520',
+          borderColor: '#1a2d44',
+          borderWidth: 1,
+          callbacks: {
+            label: ctx => ' ' + ctx.parsed.y + ' ' + unit
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(26,45,68,0.8)' },
+          ticks: { maxTicksLimit: 6, maxRotation: 0 }
+        },
+        y: {
+          grid: { color: 'rgba(26,45,68,0.8)' },
+          ticks: { maxTicksLimit: 5 }
+        }
+      }
+    }
+  });
+}
+
+const charts = {
+  temp: makeChart('ch-temp', 'rgb(0,255,136)',  '°C'),
+  hum:  makeChart('ch-hum',  'rgb(77,168,255)', '%'),
+  mq:   makeChart('ch-mq',   'rgb(255,224,64)', 'ADC'),
+  dust: makeChart('ch-dust', 'rgb(255,140,0)',  'mg/m³')
+};
+
+function updateChart(chart, feeds, fieldNum, decimals) {
+  const labels = [], data = [];
+  feeds.forEach(f => {
+    const v = parseFloat(f['field' + fieldNum]);
+    if (!isNaN(v)) {
+      const d = new Date(f.created_at);
+      labels.push(d.toLocaleTimeString('ro-RO', {hour:'2-digit', minute:'2-digit'}));
+      data.push(parseFloat(v.toFixed(decimals)));
+    }
+  });
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = data;
+  chart.update();
+  return data;
+}
+
+// =============================================
+// MIN / MAX din feeds
+// =============================================
+function minMax(arr) {
+  const clean = arr.filter(v => !isNaN(v));
+  if (!clean.length) return null;
+  return { min: Math.min(...clean), max: Math.max(...clean) };
+}
+
+// =============================================
+// FETCH THINGSPEAK
+// =============================================
+async function fetchData() {
+  const keyParam = READ_KEY ? `&api_key=${READ_KEY}` : '';
+  const url = `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?results=${RESULTS}${keyParam}`;
+
+  try {
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const json = await res.json();
+    const feeds = json.feeds || [];
+    if (!feeds.length) throw new Error('Nu există date');
+
+    // Ultima valoare
+    const last = feeds[feeds.length - 1];
+    const T  = parseFloat(last.field1);
+    const H  = parseFloat(last.field2);
+    const Pr = parseFloat(last.field3);
+    const MQ = parseFloat(last.field4);
+    const Du = parseFloat(last.field5);
+
+    // Carduri
+    setVal('val-temp', isNaN(T)  ? '--' : T.toFixed(1),  tempClass(T));
+    setVal('val-hum',  isNaN(H)  ? '--' : H.toFixed(0),  humClass(H));
+    setVal('val-pres', isNaN(Pr) ? '--' : Pr.toFixed(0), 'col-green');
+    setVal('val-mq',   isNaN(MQ) ? '--' : Math.round(MQ), mqInfo(MQ).cls);
+    setVal('val-dust', isNaN(Du) ? '--' : Du.toFixed(3),  dustInfo(Du).cls);
+
+    // Statusuri
+    if (!isNaN(MQ)) {
+      const i = mqInfo(MQ);
+      const st = document.getElementById('st-mq');
+      st.textContent = i.lbl;
+      st.className = 'card-status ' + i.bg;
+    }
+    if (!isNaN(Du)) {
+      const i = dustInfo(Du);
+      const st = document.getElementById('st-dust');
+      st.textContent = i.lbl;
+      st.className = 'card-status ' + i.bg;
+    }
+
+    // Grafice + min/max din ultimele 60 puncte
+    const tData  = updateChart(charts.temp, feeds, FIELDS.temp, 1);
+    const hData  = updateChart(charts.hum,  feeds, FIELDS.hum,  0);
+    const mData  = updateChart(charts.mq,   feeds, FIELDS.mq,   0);
+    const dData  = updateChart(charts.dust, feeds, FIELDS.dust, 3);
+
+    // Valorile curente lângă titlu grafic
+    if (!isNaN(T))  document.getElementById('cl-temp').textContent = T.toFixed(1) + ' °C';
+    if (!isNaN(H))  document.getElementById('cl-hum').textContent  = H.toFixed(0) + ' %';
+    if (!isNaN(MQ)) document.getElementById('cl-mq').textContent   = Math.round(MQ);
+    if (!isNaN(Du)) document.getElementById('cl-dust').textContent = Du.toFixed(3);
+
+    // Min/Max in carduri
+    const mm = (arr, dec) => {
+      const r = minMax(arr);
+      return r ? `↓ ${r.min.toFixed(dec)}  ↑ ${r.max.toFixed(dec)}` : '';
+    };
+    document.getElementById('mm-temp').textContent = mm(tData, 1);
+    document.getElementById('mm-hum').textContent  = mm(hData, 0);
+    document.getElementById('mm-pres').textContent = (() => {
+      const pArr = feeds.map(f => parseFloat(f.field3)).filter(v => !isNaN(v));
+      const r = minMax(pArr);
+      return r ? `↓ ${r.min.toFixed(0)}  ↑ ${r.max.toFixed(0)}` : '';
+    })();
+
+    // Status bar
+    document.getElementById('dot').className = 'status-dot ok';
+    document.getElementById('status-text').textContent = 'Date live — ThingSpeak activ';
+    document.getElementById('last-update').textContent =
+      'Ultima actualizare: ' + new Date().toLocaleTimeString('ro-RO');
+
+  } catch (err) {
+    document.getElementById('dot').className = 'status-dot err';
+    document.getElementById('status-text').textContent = '⚠ Eroare: ' + err.message;
+    console.error(err);
+  }
+}
+
+// =============================================
+// START
+// =============================================
+fetchData();
+setInterval(fetchData, REFRESH_MS);
+</script>
+</body>
+</html>
