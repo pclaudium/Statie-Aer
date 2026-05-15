@@ -31,7 +31,6 @@
     overflow-x: hidden;
   }
 
-  /* Subtle grid background */
   body::before {
     content: '';
     position: fixed;
@@ -100,13 +99,19 @@
     display: flex;
     align-items: center;
     gap: 16px;
-    margin-bottom: 28px;
+    margin-bottom: 16px;
     padding: 10px 16px;
     background: var(--panel);
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 0.78rem;
     color: var(--muted);
+    transition: border-color 0.4s, box-shadow 0.4s;
+  }
+
+  .status-bar.offline {
+    border-color: rgba(255, 51, 85, 0.5);
+    box-shadow: 0 0 16px rgba(255, 51, 85, 0.12);
   }
 
   .status-dot {
@@ -116,12 +121,59 @@
     flex-shrink: 0;
     transition: background 0.3s;
   }
-  .status-dot.ok { background: var(--green); box-shadow: 0 0 8px var(--green); }
-  .status-dot.err { background: var(--red); }
+  .status-dot.ok  { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.err { background: var(--red);   box-shadow: 0 0 8px var(--red); animation: blink 1.2s ease-in-out infinite; }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
 
   #status-text { color: var(--text); }
   .status-bar .spacer { flex: 1; }
   #last-update { font-size: 0.72rem; }
+
+  /* ── OFFLINE BANNER ── */
+  #offline-banner {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 20px;
+    padding: 14px 20px;
+    background: rgba(255, 51, 85, 0.08);
+    border: 1px solid rgba(255, 51, 85, 0.4);
+    border-left: 4px solid var(--red);
+    border-radius: 6px;
+    font-size: 0.82rem;
+    color: var(--red);
+    letter-spacing: 1px;
+    animation: fadeInDown 0.4s ease;
+  }
+
+  #offline-banner.visible { display: flex; }
+
+  @keyframes fadeInDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .offline-icon {
+    font-size: 1.4rem;
+    flex-shrink: 0;
+  }
+
+  .offline-text strong {
+    display: block;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 0.78rem;
+    letter-spacing: 3px;
+    margin-bottom: 4px;
+  }
+
+  .offline-text span {
+    color: rgba(255, 51, 85, 0.7);
+    font-size: 0.72rem;
+  }
 
   /* ── CARDS GRID ── */
   .cards {
@@ -139,7 +191,7 @@
     padding: 18px 16px 14px;
     position: relative;
     overflow: hidden;
-    transition: border-color 0.3s, box-shadow 0.3s;
+    transition: border-color 0.3s, box-shadow 0.3s, opacity 0.4s;
   }
 
   .card::after {
@@ -152,6 +204,12 @@
   }
 
   .card:hover { box-shadow: var(--glow); }
+
+  /* carduri estompate când stația e offline */
+  .cards.station-offline .card {
+    opacity: 0.5;
+    filter: grayscale(0.4);
+  }
 
   .card-label {
     font-size: 0.68rem;
@@ -217,6 +275,12 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px;
+    transition: opacity 0.4s;
+  }
+
+  .charts.station-offline .chart-card {
+    opacity: 0.5;
+    filter: grayscale(0.4);
   }
 
   .chart-header {
@@ -308,15 +372,24 @@
   </header>
 
   <!-- STATUS -->
-  <div class="status-bar">
+  <div class="status-bar" id="status-bar">
     <div class="status-dot" id="dot"></div>
     <span id="status-text"><span class="spinner"></span>Se încarcă datele...</span>
     <div class="spacer"></div>
     <span id="last-update"></span>
   </div>
 
+  <!-- OFFLINE BANNER (ascuns implicit) -->
+  <div id="offline-banner">
+    <div class="offline-icon">📡</div>
+    <div class="offline-text">
+      <strong>STAȚIE OFFLINE</strong>
+      <span id="offline-detail">Nu s-au primit date în ultimele 5 minute.</span>
+    </div>
+  </div>
+
   <!-- CARDS -->
-  <div class="cards">
+  <div class="cards" id="cards-grid">
 
     <div class="card" id="card-temp">
       <div class="card-label">Temperatură</div>
@@ -357,7 +430,7 @@
 
   <!-- CHARTS -->
   <div class="charts-title">◈ GRAFICE ULTIMELE 60 MINUTE</div>
-  <div class="charts">
+  <div class="charts" id="charts-grid">
 
     <div class="chart-card">
       <div class="chart-header">
@@ -404,15 +477,14 @@
 
 <script>
 // =============================================
-// CONFIG — modifică dacă schimbi canalul
+// CONFIG
 // =============================================
-const CHANNEL_ID  = '3314977';
-const READ_KEY    = '';          // lasă gol dacă canalul e public
-const RESULTS     = 60;          // câte puncte să cerem
-const REFRESH_MS  = 60000;       // refresh la 60s
+const CHANNEL_ID      = '3314977';
+const READ_KEY        = '';
+const RESULTS         = 60;
+const REFRESH_MS      = 60000;
+const OFFLINE_MINUTES = 5;      // după câte minute considerăm stația oprită
 
-// field mapping (din codul Arduino):
-// field1=Temp  field2=Hum  field3=Pres  field4=MQ  field5=Dust
 const FIELDS = { temp:1, hum:2, pres:3, mq:4, dust:5 };
 
 // =============================================
@@ -464,7 +536,33 @@ function setVal(id, val, cls) {
 }
 
 // =============================================
-// CHART.JS — configuratie comuna
+// OFFLINE BANNER
+// =============================================
+function setOfflineState(isOffline, diffMin) {
+  const banner     = document.getElementById('offline-banner');
+  const statusBar  = document.getElementById('status-bar');
+  const cardsGrid  = document.getElementById('cards-grid');
+  const chartsGrid = document.getElementById('charts-grid');
+
+  if (isOffline) {
+    banner.classList.add('visible');
+    statusBar.classList.add('offline');
+    cardsGrid.classList.add('station-offline');
+    chartsGrid.classList.add('station-offline');
+
+    const minuteStr = Math.round(diffMin);
+    document.getElementById('offline-detail').textContent =
+      `Ultimele date au fost primite acum ${minuteStr} ${minuteStr === 1 ? 'minut' : 'minute'}. ESP32 poate fi oprit sau fără internet.`;
+  } else {
+    banner.classList.remove('visible');
+    statusBar.classList.remove('offline');
+    cardsGrid.classList.remove('station-offline');
+    chartsGrid.classList.remove('station-offline');
+  }
+}
+
+// =============================================
+// CHART.JS
 // =============================================
 Chart.defaults.color = '#3a5570';
 Chart.defaults.font.family = "'Share Tech Mono', monospace";
@@ -540,9 +638,6 @@ function updateChart(chart, feeds, fieldNum, decimals) {
   return data;
 }
 
-// =============================================
-// MIN / MAX din feeds
-// =============================================
 function minMax(arr) {
   const clean = arr.filter(v => !isNaN(v));
   if (!clean.length) return null;
@@ -563,8 +658,16 @@ async function fetchData() {
     const feeds = json.feeds || [];
     if (!feeds.length) throw new Error('Nu există date');
 
-    // Ultima valoare
     const last = feeds[feeds.length - 1];
+
+    // ── VERIFICARE OFFLINE ──────────────────────
+    const lastTime = new Date(last.created_at);
+    const diffMin  = (Date.now() - lastTime.getTime()) / 60000;
+    const isOffline = diffMin > OFFLINE_MINUTES;
+
+    setOfflineState(isOffline, diffMin);
+    // ────────────────────────────────────────────
+
     const T  = parseFloat(last.field1);
     const H  = parseFloat(last.field2);
     const Pr = parseFloat(last.field3);
@@ -592,19 +695,19 @@ async function fetchData() {
       st.className = 'card-status ' + i.bg;
     }
 
-    // Grafice + min/max din ultimele 60 puncte
+    // Grafice
     const tData  = updateChart(charts.temp, feeds, FIELDS.temp, 1);
     const hData  = updateChart(charts.hum,  feeds, FIELDS.hum,  0);
-    const mData  = updateChart(charts.mq,   feeds, FIELDS.mq,   0);
-    const dData  = updateChart(charts.dust, feeds, FIELDS.dust, 3);
+    updateChart(charts.mq,   feeds, FIELDS.mq,   0);
+    updateChart(charts.dust, feeds, FIELDS.dust, 3);
 
-    // Valorile curente lângă titlu grafic
+    // Valori curente lângă titlu grafic
     if (!isNaN(T))  document.getElementById('cl-temp').textContent = T.toFixed(1) + ' °C';
     if (!isNaN(H))  document.getElementById('cl-hum').textContent  = H.toFixed(0) + ' %';
     if (!isNaN(MQ)) document.getElementById('cl-mq').textContent   = Math.round(MQ);
     if (!isNaN(Du)) document.getElementById('cl-dust').textContent = Du.toFixed(3);
 
-    // Min/Max in carduri
+    // Min/Max
     const mm = (arr, dec) => {
       const r = minMax(arr);
       return r ? `↓ ${r.min.toFixed(dec)}  ↑ ${r.max.toFixed(dec)}` : '';
@@ -618,10 +721,15 @@ async function fetchData() {
     })();
 
     // Status bar
-    document.getElementById('dot').className = 'status-dot ok';
-    document.getElementById('status-text').textContent = 'Date live — ThingSpeak activ';
+    if (isOffline) {
+      document.getElementById('dot').className = 'status-dot err';
+      document.getElementById('status-text').textContent = '⚠ Stație offline — date expirate';
+    } else {
+      document.getElementById('dot').className = 'status-dot ok';
+      document.getElementById('status-text').textContent = 'Date live — ThingSpeak activ';
+    }
     document.getElementById('last-update').textContent =
-      'Ultima actualizare: ' + new Date().toLocaleTimeString('ro-RO');
+      'Ultima citire: ' + lastTime.toLocaleTimeString('ro-RO');
 
   } catch (err) {
     document.getElementById('dot').className = 'status-dot err';
