@@ -157,10 +157,7 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  .offline-icon {
-    font-size: 1.4rem;
-    flex-shrink: 0;
-  }
+  .offline-icon { font-size: 1.4rem; flex-shrink: 0; }
 
   .offline-text strong {
     display: block;
@@ -194,18 +191,8 @@
     transition: border-color 0.3s, box-shadow 0.3s, opacity 0.4s;
   }
 
-  .card::after {
-    content: '';
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 3px;
-    background: inherit;
-    filter: blur(6px);
-  }
-
   .card:hover { box-shadow: var(--glow); }
 
-  /* carduri estompate când stația e offline */
   .cards.station-offline .card {
     opacity: 0.5;
     filter: grayscale(0.4);
@@ -248,6 +235,36 @@
     margin-top: 8px;
     font-size: 0.65rem;
     color: var(--muted);
+  }
+
+  /* ── CARD AQI SPECIAL ── */
+  #card-aqi {
+    border-top-color: var(--green);
+    grid-column: span 1;
+  }
+
+  /* bara de progress AQI */
+  .aqi-bar-wrap {
+    margin-top: 10px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+
+  .aqi-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.6s ease, background 0.4s;
+  }
+
+  .aqi-scale {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    font-size: 0.58rem;
+    color: var(--muted);
+    letter-spacing: 0px;
   }
 
   /* ── CHARTS ── */
@@ -379,7 +396,7 @@
     <span id="last-update"></span>
   </div>
 
-  <!-- OFFLINE BANNER (ascuns implicit) -->
+  <!-- OFFLINE BANNER -->
   <div id="offline-banner">
     <div class="offline-icon">📡</div>
     <div class="offline-text">
@@ -390,6 +407,21 @@
 
   <!-- CARDS -->
   <div class="cards" id="cards-grid">
+
+    <!-- AQI COMPOZIT — primul card, cel mai important -->
+    <div class="card" id="card-aqi">
+      <div class="card-label">AQI Compozit</div>
+      <div class="card-value" id="val-aqi">--</div>
+      <div class="card-unit">indice calitate aer</div>
+      <div class="card-status" id="st-aqi"></div>
+      <!-- bara vizuala 0-100 -->
+      <div class="aqi-bar-wrap">
+        <div class="aqi-bar-fill" id="aqi-bar" style="width:0%"></div>
+      </div>
+      <div class="aqi-scale">
+        <span>0</span><span>25</span><span>50</span><span>75</span><span>100+</span>
+      </div>
+    </div>
 
     <div class="card" id="card-temp">
       <div class="card-label">Temperatură</div>
@@ -432,6 +464,15 @@
   <div class="charts-title">◈ GRAFICE ULTIMELE 60 MINUTE</div>
   <div class="charts" id="charts-grid">
 
+    <!-- GRAFIC AQI — primul grafic -->
+    <div class="chart-card">
+      <div class="chart-header">
+        <span class="chart-title">AQI Compozit</span>
+        <span class="chart-latest col-green" id="cl-aqi">--</span>
+      </div>
+      <div class="chart-wrap"><canvas id="ch-aqi"></canvas></div>
+    </div>
+
     <div class="chart-card">
       <div class="chart-header">
         <span class="chart-title">Temperatură (°C)</span>
@@ -468,9 +509,7 @@
 
   <!-- FOOTER -->
   <footer>
-    
-    <span>Refresh automat: 60s &nbsp;|&nbsp; Sursa: ESP32 </span>
-   
+    <span>Refresh automat: 60s &nbsp;|&nbsp; Sursa: ESP32</span>
   </footer>
 
 </div>
@@ -483,9 +522,9 @@ const CHANNEL_ID      = '3314977';
 const READ_KEY        = '';
 const RESULTS         = 60;
 const REFRESH_MS      = 60000;
-const OFFLINE_MINUTES = 5;      // după câte minute considerăm stația oprită
+const OFFLINE_MINUTES = 5;
 
-const FIELDS = { temp:1, hum:2, pres:3, mq:4, dust:5 };
+const FIELDS = { temp:1, hum:2, pres:3, mq:4, dust:5, aqi:6 };
 
 // =============================================
 // CEAS LOCAL
@@ -501,19 +540,30 @@ setInterval(updateClock, 1000);
 updateClock();
 
 // =============================================
+// HELPERS AQI
+// =============================================
+function aqiInfo(v) {
+  if (v <= 25)  return { cls:'col-green',  bg:'bg-green',  lbl:'EXCELENT',   barColor:'#00ff88' };
+  if (v <= 50)  return { cls:'col-green',  bg:'bg-green',  lbl:'BUN',        barColor:'#00ff88' };
+  if (v <= 75)  return { cls:'col-yellow', bg:'bg-yellow', lbl:'MODERAT',    barColor:'#ffe040' };
+  if (v <= 100) return { cls:'col-orange', bg:'bg-orange', lbl:'POLUAT',     barColor:'#ff8c00' };
+  return               { cls:'col-red',    bg:'bg-red',    lbl:'TOXIC!',     barColor:'#ff3355' };
+}
+
+// =============================================
 // HELPERS CULORI / STATUS
 // =============================================
 function mqInfo(v) {
-  if (v < 1500) return {cls:'col-green',  bg:'bg-green',  lbl:'EXCELENT'};
-  if (v < 2200) return {cls:'col-yellow', bg:'bg-yellow', lbl:'ACCEPTABIL'};
-  if (v < 3000) return {cls:'col-orange', bg:'bg-orange', lbl:'POLUAT'};
-  return            {cls:'col-red',    bg:'bg-red',    lbl:'TOXIC!'};
+  if (v < 2100) return {cls:'col-green',  bg:'bg-green',  lbl:'EXCELENT'};
+  if (v < 2800) return {cls:'col-yellow', bg:'bg-yellow', lbl:'ACCEPTABIL'};
+  if (v < 3400) return {cls:'col-orange', bg:'bg-orange', lbl:'POLUAT'};
+  return             {cls:'col-red',    bg:'bg-red',    lbl:'TOXIC!'};
 }
 function dustInfo(v) {
   if (v < 0.03) return {cls:'col-green',  bg:'bg-green',  lbl:'AER CURAT'};
   if (v < 0.08) return {cls:'col-yellow', bg:'bg-yellow', lbl:'MODERAT'};
   if (v < 0.15) return {cls:'col-orange', bg:'bg-orange', lbl:'NOCIV'};
-  return             {cls:'col-red',    bg:'bg-red',    lbl:'PERICULOS!'};
+  return              {cls:'col-red',    bg:'bg-red',    lbl:'PERICULOS!'};
 }
 function tempClass(v) {
   if (v < 10)  return 'col-blue';
@@ -549,7 +599,6 @@ function setOfflineState(isOffline, diffMin) {
     statusBar.classList.add('offline');
     cardsGrid.classList.add('station-offline');
     chartsGrid.classList.add('station-offline');
-
     const minuteStr = Math.round(diffMin);
     document.getElementById('offline-detail').textContent =
       `Ultimele date au fost primite acum ${minuteStr} ${minuteStr === 1 ? 'minut' : 'minute'}. ESP32 poate fi oprit sau fără internet.`;
@@ -596,31 +645,29 @@ function makeChart(canvasId, color, unit) {
           backgroundColor: '#0d1520',
           borderColor: '#1a2d44',
           borderWidth: 1,
-          callbacks: {
-            label: ctx => ' ' + ctx.parsed.y + ' ' + unit
-          }
+          callbacks: { label: ctx => ' ' + ctx.parsed.y + ' ' + unit }
         }
       },
       scales: {
-        x: {
-          grid: { color: 'rgba(26,45,68,0.8)' },
-          ticks: { maxTicksLimit: 6, maxRotation: 0 }
-        },
-        y: {
-          grid: { color: 'rgba(26,45,68,0.8)' },
-          ticks: { maxTicksLimit: 5 }
-        }
+        x: { grid: { color: 'rgba(26,45,68,0.8)' }, ticks: { maxTicksLimit: 6, maxRotation: 0 } },
+        y: { grid: { color: 'rgba(26,45,68,0.8)' }, ticks: { maxTicksLimit: 5 } }
       }
     }
   });
 }
 
 const charts = {
+  aqi:  makeChart('ch-aqi',  'rgb(0,255,136)',  'AQI'),
   temp: makeChart('ch-temp', 'rgb(0,255,136)',  '°C'),
   hum:  makeChart('ch-hum',  'rgb(77,168,255)', '%'),
   mq:   makeChart('ch-mq',   'rgb(255,224,64)', 'ADC'),
   dust: makeChart('ch-dust', 'rgb(255,140,0)',  'mg/m³')
 };
+
+// Graficul AQI are scala fixa 0-100 pentru context
+charts.aqi.options.scales.y.min = 0;
+charts.aqi.options.scales.y.max = 100;
+charts.aqi.update();
 
 function updateChart(chart, feeds, fieldNum, decimals) {
   const labels = [], data = [];
@@ -660,54 +707,68 @@ async function fetchData() {
 
     const last = feeds[feeds.length - 1];
 
-    // ── VERIFICARE OFFLINE ──────────────────────
+    // offline check
     const lastTime = new Date(last.created_at);
     const diffMin  = (Date.now() - lastTime.getTime()) / 60000;
-    const isOffline = diffMin > OFFLINE_MINUTES;
+    setOfflineState(diffMin > OFFLINE_MINUTES, diffMin);
 
-    setOfflineState(isOffline, diffMin);
-    // ────────────────────────────────────────────
+    const T   = parseFloat(last.field1);
+    const H   = parseFloat(last.field2);
+    const Pr  = parseFloat(last.field3);
+    const MQ  = parseFloat(last.field4);
+    const Du  = parseFloat(last.field5);
+    const AQI = parseFloat(last.field6);  // AQI compozit de la ESP32
 
-    const T  = parseFloat(last.field1);
-    const H  = parseFloat(last.field2);
-    const Pr = parseFloat(last.field3);
-    const MQ = parseFloat(last.field4);
-    const Du = parseFloat(last.field5);
+    // ── CARD AQI ──
+    if (!isNaN(AQI)) {
+      const info = aqiInfo(AQI);
+      setVal('val-aqi', Math.round(AQI), info.cls);
 
-    // Carduri
+      const st = document.getElementById('st-aqi');
+      st.textContent = info.lbl;
+      st.className = 'card-status ' + info.bg;
+
+      // bara de progres (clamped la 100%)
+      const pct = Math.min(Math.round(AQI), 100);
+      const bar = document.getElementById('aqi-bar');
+      bar.style.width = pct + '%';
+      bar.style.background = info.barColor;
+
+      document.getElementById('cl-aqi').textContent = Math.round(AQI);
+      document.getElementById('cl-aqi').className   = 'chart-latest ' + info.cls;
+    }
+
+    // ── CARDURI NORMALE ──
     setVal('val-temp', isNaN(T)  ? '--' : T.toFixed(1),  tempClass(T));
     setVal('val-hum',  isNaN(H)  ? '--' : H.toFixed(0),  humClass(H));
     setVal('val-pres', isNaN(Pr) ? '--' : Pr.toFixed(0), 'col-green');
     setVal('val-mq',   isNaN(MQ) ? '--' : Math.round(MQ), mqInfo(MQ).cls);
     setVal('val-dust', isNaN(Du) ? '--' : Du.toFixed(3),  dustInfo(Du).cls);
 
-    // Statusuri
     if (!isNaN(MQ)) {
       const i = mqInfo(MQ);
       const st = document.getElementById('st-mq');
-      st.textContent = i.lbl;
-      st.className = 'card-status ' + i.bg;
+      st.textContent = i.lbl; st.className = 'card-status ' + i.bg;
     }
     if (!isNaN(Du)) {
       const i = dustInfo(Du);
       const st = document.getElementById('st-dust');
-      st.textContent = i.lbl;
-      st.className = 'card-status ' + i.bg;
+      st.textContent = i.lbl; st.className = 'card-status ' + i.bg;
     }
 
-    // Grafice
-    const tData  = updateChart(charts.temp, feeds, FIELDS.temp, 1);
-    const hData  = updateChart(charts.hum,  feeds, FIELDS.hum,  0);
+    // ── GRAFICE ──
+    updateChart(charts.aqi,  feeds, FIELDS.aqi,  0);
+    const tData = updateChart(charts.temp, feeds, FIELDS.temp, 1);
+    const hData = updateChart(charts.hum,  feeds, FIELDS.hum,  0);
     updateChart(charts.mq,   feeds, FIELDS.mq,   0);
     updateChart(charts.dust, feeds, FIELDS.dust, 3);
 
-    // Valori curente lângă titlu grafic
     if (!isNaN(T))  document.getElementById('cl-temp').textContent = T.toFixed(1) + ' °C';
     if (!isNaN(H))  document.getElementById('cl-hum').textContent  = H.toFixed(0) + ' %';
     if (!isNaN(MQ)) document.getElementById('cl-mq').textContent   = Math.round(MQ);
     if (!isNaN(Du)) document.getElementById('cl-dust').textContent = Du.toFixed(3);
 
-    // Min/Max
+    // min/max
     const mm = (arr, dec) => {
       const r = minMax(arr);
       return r ? `↓ ${r.min.toFixed(dec)}  ↑ ${r.max.toFixed(dec)}` : '';
@@ -720,8 +781,8 @@ async function fetchData() {
       return r ? `↓ ${r.min.toFixed(0)}  ↑ ${r.max.toFixed(0)}` : '';
     })();
 
-    // Status bar
-    if (isOffline) {
+    // status bar
+    if (diffMin > OFFLINE_MINUTES) {
       document.getElementById('dot').className = 'status-dot err';
       document.getElementById('status-text').textContent = '⚠ Stație offline — date expirate';
     } else {
